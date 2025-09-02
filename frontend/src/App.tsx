@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext, useEffect } from 'react';
+import React, { useState, useRef, useCallback, createContext, useContext, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
@@ -103,62 +103,62 @@ const trainingPrograms = [
   }
 ];
 
-const virtualCharacters = [
-  {
-    id: 1,
-    name: '김미영 (27세)',
-    issue: '불안장애',
-    difficulty: 3,
-    background: '직장에서의 스트레스로 인한 불안증상',
-    personality: '내향적, 완벽주의',
-    characterType: 'female-young'
-  },
-  {
-    id: 2,
-    name: '박준호 (34세)',
-    issue: '우울증',
-    difficulty: 5,
-    background: '최근 이혼 후 우울감과 무기력증',
-    personality: '외향적이었으나 현재 위축됨',
-    characterType: 'male-adult'
-  },
-  {
-    id: 3,
-    name: '이소영 (19세)',
-    issue: '대인관계 문제',
-    difficulty: 2,
-    background: '대학 새내기, 친구 관계에서의 어려움',
-    personality: '수줍음, 민감함',
-    characterType: 'female-teen'
-  },
-  {
-    id: 4,
-    name: '최영수 (45세)',
-    issue: '중년의 위기',
-    difficulty: 7,
-    background: '사업 실패와 가정 문제로 인한 혼란',
-    personality: '성취지향적, 스트레스에 민감',
-    characterType: 'male-middle'
-  },
-  {
-    id: 5,
-    name: '정하린 (16세)',
-    issue: '자해 행동',
-    difficulty: 9,
-    background: '학업 스트레스와 가정 내 갈등',
-    personality: '감정기복이 심함, 충동적',
-    characterType: 'female-teen-2'
-  },
-  {
-    id: 6,
-    name: '강민석 (29세)',
-    issue: '알코올 의존',
-    difficulty: 8,
-    background: '회사 업무 스트레스로 시작된 음주 문제',
-    personality: '부정적 사고, 회피적',
-    characterType: 'male-stressed'
-  }
-];
+// const virtualCharacters = [
+//   {
+//     id: 1,
+//     name: '김미영 (27세)',
+//     issue: '불안장애',
+//     difficulty: 3,
+//     background: '직장에서의 스트레스로 인한 불안증상',
+//     personality: '내향적, 완벽주의',
+//     characterType: 'female-young'
+//   },
+//   {
+//     id: 2,
+//     name: '박준호 (34세)',
+//     issue: '우울증',
+//     difficulty: 5,
+//     background: '최근 이혼 후 우울감과 무기력증',
+//     personality: '외향적이었으나 현재 위축됨',
+//     characterType: 'male-adult'
+//   },
+//   {
+//     id: 3,
+//     name: '이소영 (19세)',
+//     issue: '대인관계 문제',
+//     difficulty: 2,
+//     background: '대학 새내기, 친구 관계에서의 어려움',
+//     personality: '수줍음, 민감함',
+//     characterType: 'female-teen'
+//   },
+//   {
+//     id: 4,
+//     name: '최영수 (45세)',
+//     issue: '중년의 위기',
+//     difficulty: 7,
+//     background: '사업 실패와 가정 문제로 인한 혼란',
+//     personality: '성취지향적, 스트레스에 민감',
+//     characterType: 'male-middle'
+//   },
+//   {
+//     id: 5,
+//     name: '정하린 (16세)',
+//     issue: '자해 행동',
+//     difficulty: 9,
+//     background: '학업 스트레스와 가정 내 갈등',
+//     personality: '감정기복이 심함, 충동적',
+//     characterType: 'female-teen-2'
+//   },
+//   {
+//     id: 6,
+//     name: '강민석 (29세)',
+//     issue: '알코올 의존',
+//     difficulty: 8,
+//     background: '회사 업무 스트레스로 시작된 음주 문제',
+//     personality: '부정적 사고, 회피적',
+//     characterType: 'male-stressed'
+//   }
+// ];
 
 // Components
 const Header = () => {
@@ -413,7 +413,11 @@ const CharacterSelect = () => {
   const program = trainingPrograms.find(p => p.id === selectedProgram);
 
   // Use API characters if available, fallback to mock data
-  const availableCharacters = characters.data && characters.data.length > 0 ? characters.data : virtualCharacters;
+  const availableCharacters = characters.loading 
+  ? [] 
+  : characters.error 
+    ? [] 
+    : characters.data || [];
 
   const filteredCharacters = availableCharacters.filter(character => {
     const matchesSearch = character.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -487,52 +491,73 @@ const CharacterSelect = () => {
 
         {/* Character Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredCharacters.map((character) => (
-            <div key={character.id} className="mono-card overflow-hidden group cursor-pointer">
-              <div className="h-24 bg-muted/30 relative flex items-center justify-center">
-                <NotionCharacter 
-                  type={character.characterType} 
-                  size={60}
-                  className="transition-transform duration-300 group-hover:scale-110"
-                />
-              </div>
-              
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold mb-1">{character.name}</h3>
-                    <p className="text-sm text-muted-foreground mb-2">{character.issue}</p>
-                    <Badge 
-                      variant={character.difficulty <= 3 ? 'secondary' : 
-                              character.difficulty <= 6 ? 'default' : 'destructive'}
-                      className="rounded-full px-3 py-1"
-                    >
-                      난이도 {character.difficulty}
-                    </Badge>
-                  </div>
-                </div>
-                
-                <div className="space-y-4 mb-6">
-                  <div>
-                    <p className="text-sm font-medium mb-1">배경 상황</p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{character.background}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium mb-1">성격 특성</p>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{character.personality}</p>
-                  </div>
-                </div>
-                
-                <Button 
-                  className="w-full mono-button rounded-2xl py-3 h-auto font-medium"
-                  onClick={() => handleSelectCharacter(character)}
-                >
-                  <MessageSquare className="h-4 w-4 mr-2" />
-                  상담 시작하기
-                </Button>
+          {characters.loading ? (
+            <div className="flex justify-center items-center p-8">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                <p className="text-muted-foreground">캐릭터 목록을 불러오는 중...</p>
               </div>
             </div>
-          ))}
+          ) : characters.error ? (
+            <div className="flex justify-center items-center p-8">
+              <div className="text-center text-red-500">
+                <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
+                <p>캐릭터 목록을 불러오는데 실패했습니다.</p>
+                <p className="text-sm text-muted-foreground mt-1">{characters.error}</p>
+              </div>
+            </div>
+          ) : filteredCharacters.length === 0 ? (
+            <div className="text-center p-8">
+              <p className="text-muted-foreground">조건에 맞는 캐릭터가 없습니다.</p>
+            </div>
+          ) : (
+            filteredCharacters.map((character) => (
+              <div key={character.id} className="mono-card overflow-hidden group cursor-pointer">
+                <div className="h-24 bg-muted/30 relative flex items-center justify-center">
+                  <NotionCharacter 
+                    type={character.characterType} 
+                    size={60}
+                    className="transition-transform duration-300 group-hover:scale-110"
+                  />
+                </div>
+                
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold mb-1">{character.name}</h3>
+                      <p className="text-sm text-muted-foreground mb-2">{character.issue}</p>
+                      <Badge 
+                        variant={character.difficulty <= 3 ? 'secondary' : 
+                                character.difficulty <= 6 ? 'default' : 'destructive'}
+                        className="rounded-full px-3 py-1"
+                      >
+                        난이도 {character.difficulty}
+                      </Badge>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <p className="text-sm font-medium mb-1">배경 상황</p>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{character.background}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium mb-1">성격 특성</p>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{character.personality}</p>
+                    </div>
+                  </div>
+                  
+                  <Button 
+                    className="w-full mono-button rounded-2xl py-3 h-auto font-medium"
+                    onClick={() => handleSelectCharacter(character)}
+                  >
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    상담 시작하기
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {filteredCharacters.length === 0 && (

@@ -123,8 +123,8 @@ async def lifespan(app: FastAPI):
     
     logger.info("🚀 YATAV Backend Server started successfully")
     
-    # Initialize default characters
-    await init_default_characters()
+    # Initialize default characters (비활성화 - 새로운 데이터 사용)
+    # await init_default_characters()
     
     # Initialize AI service with available API keys or demo provider
     try:
@@ -244,12 +244,14 @@ class VirtualCharacter(BaseModel):
     id: Optional[str] = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     age: int
+    gender: str
     issue: str
     difficulty: int = Field(ge=1, le=10)
     background: str
+    primary_issue: str
     personality: str
     character_type: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     is_active: bool = True
 
 # Database helper functions

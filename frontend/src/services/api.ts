@@ -312,6 +312,57 @@ class ApiService {
     return this.api.defaults.baseURL || 'http://127.0.0.1:8008';
   }
 
+  // System Settings endpoints
+  async getSystemSettings(): Promise<any> {
+    try {
+      const response = await this.api.get<any>('/admin/system-settings');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch system settings:', error);
+      throw error;
+    }
+  }
+
+  async updateSystemSettings(settings: any): Promise<any> {
+    try {
+      const response = await this.api.post<any>('/admin/system-settings', settings);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to update system settings:', error);
+      throw error;
+    }
+  }
+
+  async createSystemBackup(): Promise<any> {
+    try {
+      const response = await this.api.post<any>('/admin/system-backup');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create system backup:', error);
+      throw error;
+    }
+  }
+
+  async getSystemLogs(limit: number = 100): Promise<any> {
+    try {
+      const response = await this.api.get<any>(`/admin/system-logs?limit=${limit}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch system logs:', error);
+      throw error;
+    }
+  }
+
+  async clearSystemLogs(): Promise<any> {
+    try {
+      const response = await this.api.delete<any>('/admin/clear-logs');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to clear system logs:', error);
+      throw error;
+    }
+  }
+
   async getCharacter(characterId: string): Promise<VirtualCharacter> {
     try {
       const response = await this.api.get<VirtualCharacter>(`/characters/${characterId}`);

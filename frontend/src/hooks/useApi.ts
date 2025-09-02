@@ -180,6 +180,21 @@ export function useApiEndpoints(): ApiState<any> {
   );
 }
 
+// System Settings hooks
+export function useSystemSettings(): ApiState<any> {
+  return useApiCall(
+    () => apiService.getSystemSettings(),
+    []
+  );
+}
+
+export function useSystemLogs(limit: number = 100): ApiState<any> {
+  return useApiCall(
+    () => apiService.getSystemLogs(limit),
+    [limit]
+  );
+}
+
 export function useCharacter(characterId: string | null): ApiState<VirtualCharacter> {
   return useApiCall(
     () => characterId ? apiService.getCharacter(characterId) : Promise.resolve(null),

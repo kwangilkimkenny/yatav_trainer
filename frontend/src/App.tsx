@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 
 // Import hooks
-import { useAuth, useCharacters, useCharactersByProgram, useSessionManager, useHealthCheck, useWebSocket, useAdminStats, useSystemHealth, useApiUsage, useApiEndpoints } from './hooks/useApi';
+import { useAuth, useCharacters, useCharactersByProgram, useSessionManager, useHealthCheck, useWebSocket, useAdminStats, useSystemHealth, useApiUsage, useApiEndpoints, useSystemSettings, useSystemLogs } from './hooks/useApi';
 import { apiService } from './services/api';
 
 // Context for app state
@@ -920,6 +920,8 @@ const AdminDashboard = () => {
   const systemHealth = useSystemHealth();
   const apiUsage = useApiUsage();
   const apiEndpoints = useApiEndpoints();
+  const systemSettings = useSystemSettings();
+  const systemLogs = useSystemLogs(50);
 
   // State for API configuration
   const [apiConfig, setApiConfig] = useState({
@@ -933,6 +935,34 @@ const AdminDashboard = () => {
 
   const [configUpdateResult, setConfigUpdateResult] = useState<any>(null);
 
+  // State for system settings
+  const [settingsConfig, setSettingsConfig] = useState({
+    platform_name: "YATAV AI Counseling Training Platform",
+    platform_description: "AI 기반 심리상담 훈련 플랫폼",
+    max_concurrent_sessions: 100,
+    session_timeout_minutes: 60,
+    auto_save_interval_seconds: 30,
+    enable_analytics: true,
+    enable_logging: true,
+    log_level: "INFO",
+    maintenance_mode: false,
+    maintenance_message: "시스템 점검 중입니다. 잠시 후 다시 시도해주세요.",
+    default_language: "ko",
+    timezone: "Asia/Seoul",
+    backup_enabled: true,
+    backup_interval_hours: 24,
+    data_retention_days: 365,
+    ai_response_timeout_seconds: 30,
+    max_message_length: 2000,
+    enable_character_filtering: true,
+    enable_program_differentiation: true,
+    demo_mode: false
+  });
+
+  const [settingsUpdateResult, setSettingsUpdateResult] = useState<any>(null);
+  const [backupResult, setBackupResult] = useState<any>(null);
+  const [logClearResult, setLogClearResult] = useState<any>(null);
+
   // Initialize base URL from current API service
   useEffect(() => {
     setApiConfig(prev => ({
@@ -940,6 +970,13 @@ const AdminDashboard = () => {
       baseUrl: apiService.getCurrentBaseUrl()
     }));
   }, []);
+
+  // Initialize system settings from API
+  useEffect(() => {
+    if (systemSettings.data && !systemSettings.loading) {
+      setSettingsConfig(systemSettings.data);
+    }
+  }, [systemSettings.data, systemSettings.loading]);
 
   const handleUpdateApiConfig = async () => {
     try {
@@ -983,6 +1020,44 @@ const AdminDashboard = () => {
         error: true,
         message: `연결 테스트 실패: ${error}`,
         test_result: false
+      });
+    }
+  };
+
+  const handleUpdateSystemSettings = async () => {
+    try {
+      const result = await apiService.updateSystemSettings(settingsConfig);
+      setSettingsUpdateResult(result);
+    } catch (error) {
+      setSettingsUpdateResult({
+        error: true,
+        message: '시스템 설정 업데이트 중 오류가 발생했습니다.'
+      });
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    try {
+      const result = await apiService.createSystemBackup();
+      setBackupResult(result);
+    } catch (error) {
+      setBackupResult({
+        error: true,
+        message: '백업 생성 중 오류가 발생했습니다.'
+      });
+    }
+  };
+
+  const handleClearLogs = async () => {
+    try {
+      const result = await apiService.clearSystemLogs();
+      setLogClearResult(result);
+      // Refresh logs after clearing
+      window.location.reload();
+    } catch (error) {
+      setLogClearResult({
+        error: true,
+        message: '로그 삭제 중 오류가 발생했습니다.'
       });
     }
   };
@@ -1433,15 +1508,308 @@ const AdminDashboard = () => {
               </div>
             </TabsContent>
 
-            <TabsContent value="settings">
-              <div className="glass rounded-2xl p-6">
-                <h3 className="text-lg font-semibold mb-2">시스템 설정</h3>
-                <p className="text-muted-foreground mb-6">
-                  YATAV 플랫폼의 전반적인 설정을 관리합니다.
-                </p>
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">시스템 설정 기능이 여기에 표시됩니다.</p>
+            <TabsContent value="settings" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Platform Settings */}
+                <div className="glass rounded-2xl p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    플랫폼 설정
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">플랫폼 이름</label>
+                      <Input
+                        value={settingsConfig.platform_name}
+                        onChange={(e) => setSettingsConfig(prev => ({ ...prev, platform_name: e.target.value }))}
+                        placeholder="YATAV AI Counseling Training Platform"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">플랫폼 설명</label>
+                      <Textarea
+                        value={settingsConfig.platform_description}
+                        onChange={(e) => setSettingsConfig(prev => ({ ...prev, platform_description: e.target.value }))}
+                        placeholder="AI 기반 심리상담 훈련 플랫폼"
+                        rows={2}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">최대 동시 세션</label>
+                        <Input
+                          type="number"
+                          value={settingsConfig.max_concurrent_sessions}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, max_concurrent_sessions: parseInt(e.target.value) }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">세션 타임아웃 (분)</label>
+                        <Input
+                          type="number"
+                          value={settingsConfig.session_timeout_minutes}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, session_timeout_minutes: parseInt(e.target.value) }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">기본 언어</label>
+                        <Select value={settingsConfig.default_language} onValueChange={(value) => 
+                          setSettingsConfig(prev => ({ ...prev, default_language: value }))
+                        }>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ko">한국어</SelectItem>
+                            <SelectItem value="en">English</SelectItem>
+                            <SelectItem value="ja">日本語</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">시간대</label>
+                        <Select value={settingsConfig.timezone} onValueChange={(value) => 
+                          setSettingsConfig(prev => ({ ...prev, timezone: value }))
+                        }>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Asia/Seoul">Asia/Seoul</SelectItem>
+                            <SelectItem value="UTC">UTC</SelectItem>
+                            <SelectItem value="America/New_York">America/New_York</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium">분석 기능 활성화</label>
+                        <input
+                          type="checkbox"
+                          checked={settingsConfig.enable_analytics}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, enable_analytics: e.target.checked }))}
+                          className="rounded"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium">로깅 활성화</label>
+                        <input
+                          type="checkbox"
+                          checked={settingsConfig.enable_logging}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, enable_logging: e.target.checked }))}
+                          className="rounded"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium">캐릭터 필터링 활성화</label>
+                        <input
+                          type="checkbox"
+                          checked={settingsConfig.enable_character_filtering}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, enable_character_filtering: e.target.checked }))}
+                          className="rounded"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium">프로그램 차별화 활성화</label>
+                        <input
+                          type="checkbox"
+                          checked={settingsConfig.enable_program_differentiation}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, enable_program_differentiation: e.target.checked }))}
+                          className="rounded"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium">데모 모드</label>
+                        <input
+                          type="checkbox"
+                          checked={settingsConfig.demo_mode}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, demo_mode: e.target.checked }))}
+                          className="rounded"
+                        />
+                      </div>
+                    </div>
+
+                    <Button onClick={handleUpdateSystemSettings} className="w-full">
+                      설정 저장
+                    </Button>
+
+                    {settingsUpdateResult && (
+                      <div className={`p-3 rounded-lg ${
+                        settingsUpdateResult.error ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+                      }`}>
+                        <p className={`text-sm font-medium ${
+                          settingsUpdateResult.error ? 'text-red-800' : 'text-green-800'
+                        }`}>
+                          {settingsUpdateResult.message}
+                        </p>
+                        {settingsUpdateResult.updated_fields && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            업데이트된 필드: {settingsUpdateResult.updated_fields.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* System Maintenance */}
+                <div className="glass rounded-2xl p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Shield className="h-5 w-5" />
+                    시스템 유지보수
+                  </h3>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                      <div>
+                        <span className="font-medium">유지보수 모드</span>
+                        <p className="text-xs text-muted-foreground">시스템을 일시적으로 중단합니다</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={settingsConfig.maintenance_mode}
+                        onChange={(e) => setSettingsConfig(prev => ({ ...prev, maintenance_mode: e.target.checked }))}
+                        className="rounded"
+                      />
+                    </div>
+
+                    {settingsConfig.maintenance_mode && (
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">유지보수 메시지</label>
+                        <Textarea
+                          value={settingsConfig.maintenance_message}
+                          onChange={(e) => setSettingsConfig(prev => ({ ...prev, maintenance_message: e.target.value }))}
+                          rows={2}
+                        />
+                      </div>
+                    )}
+
+                    <Separator />
+
+                    <div>
+                      <h4 className="font-medium mb-3">백업 관리</h4>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">자동 백업 활성화</span>
+                          <input
+                            type="checkbox"
+                            checked={settingsConfig.backup_enabled}
+                            onChange={(e) => setSettingsConfig(prev => ({ ...prev, backup_enabled: e.target.checked }))}
+                            className="rounded"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-muted-foreground">백업 주기 (시간)</label>
+                            <Input
+                              type="number"
+                              value={settingsConfig.backup_interval_hours}
+                              onChange={(e) => setSettingsConfig(prev => ({ ...prev, backup_interval_hours: parseInt(e.target.value) }))}
+                              className="text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">데이터 보관 (일)</label>
+                            <Input
+                              type="number"
+                              value={settingsConfig.data_retention_days}
+                              onChange={(e) => setSettingsConfig(prev => ({ ...prev, data_retention_days: parseInt(e.target.value) }))}
+                              className="text-sm"
+                            />
+                          </div>
+                        </div>
+                        <Button onClick={handleCreateBackup} variant="outline" className="w-full">
+                          수동 백업 생성
+                        </Button>
+                        {backupResult && (
+                          <div className={`p-3 rounded-lg ${
+                            backupResult.error ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+                          }`}>
+                            <p className={`text-sm font-medium ${
+                              backupResult.error ? 'text-red-800' : 'text-green-800'
+                            }`}>
+                              {backupResult.message}
+                            </p>
+                            {backupResult.total_records && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                총 {backupResult.total_records}개 레코드 백업 완료
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* System Logs */}
+              <div className="glass rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    시스템 로그
+                  </h3>
+                  <Button onClick={handleClearLogs} variant="destructive" size="sm">
+                    로그 삭제
+                  </Button>
+                </div>
+
+                {logClearResult && (
+                  <div className={`p-3 rounded-lg mb-4 ${
+                    logClearResult.error ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+                  }`}>
+                    <p className={`text-sm font-medium ${
+                      logClearResult.error ? 'text-red-800' : 'text-green-800'
+                    }`}>
+                      {logClearResult.message}
+                    </p>
+                  </div>
+                )}
+
+                {systemLogs.loading ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    시스템 로그를 불러오는 중...
+                  </div>
+                ) : systemLogs.error ? (
+                  <div className="text-center py-8 text-red-500">
+                    시스템 로그를 가져올 수 없습니다
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="text-sm text-muted-foreground mb-3">
+                      총 {systemLogs.data?.total_lines || 0}줄 중 최근 {systemLogs.data?.showing_lines || 0}줄 표시
+                    </div>
+                    <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-xs max-h-96 overflow-y-auto">
+                      {systemLogs.data?.logs?.length > 0 ? (
+                        systemLogs.data.logs.map((log: any, index: number) => (
+                          <div key={index} className={`mb-1 ${
+                            log.level === 'ERROR' ? 'text-red-400' :
+                            log.level === 'WARNING' ? 'text-yellow-400' :
+                            log.level === 'DEBUG' ? 'text-blue-400' :
+                            'text-green-400'
+                          }`}>
+                            <span className="text-gray-500">{log.timestamp}</span> 
+                            <span className="text-cyan-400"> {log.source}</span> - 
+                            <span> {log.message}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-gray-500">로그가 없습니다.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>

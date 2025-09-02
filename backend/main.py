@@ -797,6 +797,278 @@ async def get_api_endpoints():
             detail="Failed to fetch API endpoints"
         )
 
+# System Settings Models
+class SystemSettings(BaseModel):
+    platform_name: Optional[str] = "YATAV AI Counseling Training Platform"
+    platform_description: Optional[str] = "AI 기반 심리상담 훈련 플랫폼"
+    max_concurrent_sessions: Optional[int] = 100
+    session_timeout_minutes: Optional[int] = 60
+    auto_save_interval_seconds: Optional[int] = 30
+    enable_analytics: Optional[bool] = True
+    enable_logging: Optional[bool] = True
+    log_level: Optional[str] = "INFO"
+    maintenance_mode: Optional[bool] = False
+    maintenance_message: Optional[str] = "시스템 점검 중입니다. 잠시 후 다시 시도해주세요."
+    default_language: Optional[str] = "ko"
+    timezone: Optional[str] = "Asia/Seoul"
+    backup_enabled: Optional[bool] = True
+    backup_interval_hours: Optional[int] = 24
+    data_retention_days: Optional[int] = 365
+    ai_response_timeout_seconds: Optional[int] = 30
+    max_message_length: Optional[int] = 2000
+    enable_character_filtering: Optional[bool] = True
+    enable_program_differentiation: Optional[bool] = True
+    demo_mode: Optional[bool] = False
+
+class SystemSettingsUpdate(BaseModel):
+    platform_name: Optional[str] = None
+    platform_description: Optional[str] = None
+    max_concurrent_sessions: Optional[int] = None
+    session_timeout_minutes: Optional[int] = None
+    auto_save_interval_seconds: Optional[int] = None
+    enable_analytics: Optional[bool] = None
+    enable_logging: Optional[bool] = None
+    log_level: Optional[str] = None
+    maintenance_mode: Optional[bool] = None
+    maintenance_message: Optional[str] = None
+    default_language: Optional[str] = None
+    timezone: Optional[str] = None
+    backup_enabled: Optional[bool] = None
+    backup_interval_hours: Optional[int] = None
+    data_retention_days: Optional[int] = None
+    ai_response_timeout_seconds: Optional[int] = None
+    max_message_length: Optional[int] = None
+    enable_character_filtering: Optional[bool] = None
+    enable_program_differentiation: Optional[bool] = None
+    demo_mode: Optional[bool] = None
+
+@app.get("/admin/system-settings", response_model=SystemSettings)
+async def get_system_settings():
+    """Get current system settings"""
+    try:
+        # Try to get settings from database
+        settings_doc = await mongo_db.system_settings.find_one({"_id": "global_settings"})
+        
+        if settings_doc:
+            # Remove MongoDB _id field
+            settings_doc.pop("_id", None)
+            return SystemSettings(**settings_doc)
+        else:
+            # Return default settings
+            default_settings = SystemSettings()
+            return default_settings
+            
+    except Exception as e:
+        logger.error(f"Error fetching system settings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch system settings"
+        )
+
+@app.post("/admin/system-settings")
+async def update_system_settings(settings_update: SystemSettingsUpdate):
+    """Update system settings"""
+    try:
+        # Get current settings
+        current_settings_doc = await mongo_db.system_settings.find_one({"_id": "global_settings"})
+        
+        if current_settings_doc:
+            current_settings_doc.pop("_id", None)
+            current_settings = SystemSettings(**current_settings_doc)
+        else:
+            current_settings = SystemSettings()
+        
+        # Update only provided fields
+        update_data = settings_update.dict(exclude_unset=True)
+        
+        for field, value in update_data.items():
+            if hasattr(current_settings, field):
+                setattr(current_settings, field, value)
+        
+        # Save to database
+        settings_dict = current_settings.dict()
+        await mongo_db.system_settings.replace_one(
+            {"_id": "global_settings"},
+            {"_id": "global_settings", **settings_dict},
+            upsert=True
+        )
+        
+        logger.info(f"System settings updated: {list(update_data.keys())}")
+        
+        return {
+            "message": "System settings updated successfully",
+            "updated_fields": list(update_data.keys()),
+            "settings": current_settings
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating system settings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update system settings"
+        )
+
+@app.post("/admin/system-backup")
+async def create_system_backup():
+    """Create a system backup"""
+    try:
+        import datetime
+        import json
+        
+        backup_timestamp = datetime.datetime.utcnow().isoformat()
+        backup_data = {
+            "timestamp": backup_timestamp,
+            "version": "2.1.0",
+            "collections": {}
+        }
+        
+        # Backup characters
+        characters = await mongo_db.characters.find({}).to_list(length=None)
+        backup_data["collections"]["characters"] = len(characters)
+        
+        # Backup sessions
+        sessions = await mongo_db.sessions.find({}).to_list(length=None)
+        backup_data["collections"]["sessions"] = len(sessions)
+        
+        # Backup system settings
+        settings = await mongo_db.system_settings.find({}).to_list(length=None)
+        backup_data["collections"]["system_settings"] = len(settings)
+        
+        # Backup users (if exists)
+        try:
+            users = await mongo_db.users.find({}).to_list(length=None)
+            backup_data["collections"]["users"] = len(users)
+        except:
+            backup_data["collections"]["users"] = 0
+        
+        # Save backup info to database
+        await mongo_db.system_backups.insert_one({
+            "timestamp": backup_timestamp,
+            "status": "completed",
+            "collections_backed_up": backup_data["collections"],
+            "total_records": sum(backup_data["collections"].values())
+        })
+        
+        return {
+            "message": "System backup created successfully",
+            "backup_id": backup_timestamp,
+            "collections_backed_up": backup_data["collections"],
+            "total_records": sum(backup_data["collections"].values())
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating system backup: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create system backup"
+        )
+
+@app.get("/admin/system-logs")
+async def get_system_logs(limit: int = 100):
+    """Get recent system logs"""
+    try:
+        import os
+        
+        log_file_path = "yatav_backend.log"
+        
+        if not os.path.exists(log_file_path):
+            return {
+                "message": "Log file not found",
+                "logs": [],
+                "total_lines": 0
+            }
+        
+        with open(log_file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Get last N lines
+        recent_lines = lines[-limit:] if len(lines) > limit else lines
+        
+        # Parse log entries
+        log_entries = []
+        for line in recent_lines:
+            line = line.strip()
+            if line:
+                # Try to parse timestamp and level
+                parts = line.split(' - ', 2)
+                if len(parts) >= 3:
+                    timestamp = parts[0]
+                    source = parts[1]
+                    message = parts[2]
+                    
+                    # Determine log level
+                    level = "INFO"
+                    if "ERROR" in message:
+                        level = "ERROR"
+                    elif "WARNING" in message:
+                        level = "WARNING"
+                    elif "DEBUG" in message:
+                        level = "DEBUG"
+                    
+                    log_entries.append({
+                        "timestamp": timestamp,
+                        "level": level,
+                        "source": source,
+                        "message": message
+                    })
+                else:
+                    log_entries.append({
+                        "timestamp": "",
+                        "level": "INFO",
+                        "source": "system",
+                        "message": line
+                    })
+        
+        return {
+            "logs": log_entries,
+            "total_lines": len(lines),
+            "showing_lines": len(recent_lines)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching system logs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch system logs"
+        )
+
+@app.delete("/admin/clear-logs")
+async def clear_system_logs():
+    """Clear system logs"""
+    try:
+        import os
+        
+        log_file_path = "yatav_backend.log"
+        
+        if os.path.exists(log_file_path):
+            # Backup current log before clearing
+            backup_timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"yatav_backend_backup_{backup_timestamp}.log"
+            
+            os.rename(log_file_path, backup_path)
+            
+            # Create new empty log file
+            with open(log_file_path, 'w') as f:
+                f.write(f"Log cleared at {datetime.utcnow().isoformat()}\n")
+            
+            logger.info(f"System logs cleared, backup saved as {backup_path}")
+            
+            return {
+                "message": "System logs cleared successfully",
+                "backup_file": backup_path
+            }
+        else:
+            return {
+                "message": "No log file found to clear"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error clearing system logs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to clear system logs"
+        )
+
 @app.get("/characters/{character_id}", response_model=VirtualCharacter)
 async def get_character(character_id: str):
     """Get a specific virtual character"""

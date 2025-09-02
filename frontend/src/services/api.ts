@@ -25,15 +25,38 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface TrainingProgramConfig {
+  available: boolean;
+  scenario?: string;
+  difficulty_adjustment?: number;
+  session_type?: string;
+  focus_skills?: string[];
+  urgency_level?: string;
+  intervention_type?: string;
+  safety_concerns?: string[];
+  recommended_techniques?: string[];
+  theoretical_background?: string;
+  complexity_level?: string;
+}
+
+export interface TrainingPrograms {
+  basic: TrainingProgramConfig;
+  crisis: TrainingProgramConfig;
+  techniques: TrainingProgramConfig;
+}
+
 export interface VirtualCharacter {
   id: string;
   name: string;
   age: number;
+  gender: string;
   issue: string;
   difficulty: number;
   background: string;
+  primary_issue: string;
   personality: string;
   character_type: string;
+  training_programs?: TrainingPrograms;
   is_active: boolean;
 }
 
@@ -208,6 +231,87 @@ class ApiService {
     }
   }
 
+  async getCharactersByProgram(programType: string): Promise<VirtualCharacter[]> {
+    try {
+      const response = await this.api.get<VirtualCharacter[]>(`/characters/program/${programType}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch characters for program ${programType}:`, error);
+      throw error;
+    }
+  }
+
+  async getProgramCharacterStats(programType: string): Promise<any> {
+    try {
+      const response = await this.api.get<any>(`/characters/program/${programType}/stats`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to fetch character stats for program ${programType}:`, error);
+      throw error;
+    }
+  }
+
+  // Admin endpoints
+  async getAdminStats(): Promise<any> {
+    try {
+      const response = await this.api.get<any>('/admin/stats');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch admin stats:', error);
+      throw error;
+    }
+  }
+
+  async getSystemHealth(): Promise<any> {
+    try {
+      const response = await this.api.get<any>('/admin/system-health');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch system health:', error);
+      throw error;
+    }
+  }
+
+  async getApiUsage(): Promise<any> {
+    try {
+      const response = await this.api.get<any>('/admin/api-usage');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch API usage:', error);
+      throw error;
+    }
+  }
+
+  async getApiEndpoints(): Promise<any> {
+    try {
+      const response = await this.api.get<any>('/admin/api-endpoints');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch API endpoints:', error);
+      throw error;
+    }
+  }
+
+  async updateApiConfig(config: any): Promise<any> {
+    try {
+      const response = await this.api.post<any>('/admin/api-config', config);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to update API config:', error);
+      throw error;
+    }
+  }
+
+  // Update base URL for API service
+  updateBaseUrl(newBaseUrl: string): void {
+    this.api.defaults.baseURL = newBaseUrl;
+    localStorage.setItem('api_base_url', newBaseUrl);
+  }
+
+  getCurrentBaseUrl(): string {
+    return this.api.defaults.baseURL || 'http://127.0.0.1:8008';
+  }
+
   async getCharacter(characterId: string): Promise<VirtualCharacter> {
     try {
       const response = await this.api.get<VirtualCharacter>(`/characters/${characterId}`);
@@ -366,4 +470,5 @@ const apiService = new ApiService();
 
 // Export singleton and types
 export default apiService;
+export { apiService };
 export type { ApiService };

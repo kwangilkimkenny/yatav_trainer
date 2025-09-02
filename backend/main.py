@@ -8,9 +8,13 @@ import os
 import sys
 import logging
 import asyncio
+import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Union
 from contextlib import asynccontextmanager
+
+# Application start time for uptime calculation
+app_start_time = time.time()
 
 # FastAPI and HTTP
 from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
@@ -238,6 +242,24 @@ class Message(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     metadata: Optional[Dict[str, Any]] = None
 
+class TrainingProgramConfig(BaseModel):
+    available: bool
+    scenario: Optional[str] = None
+    difficulty_adjustment: Optional[int] = None
+    session_type: Optional[str] = None
+    focus_skills: Optional[List[str]] = None
+    urgency_level: Optional[str] = None
+    intervention_type: Optional[str] = None
+    safety_concerns: Optional[List[str]] = None
+    recommended_techniques: Optional[List[str]] = None
+    theoretical_background: Optional[str] = None
+    complexity_level: Optional[str] = None
+
+class TrainingPrograms(BaseModel):
+    basic: TrainingProgramConfig
+    crisis: TrainingProgramConfig
+    techniques: TrainingProgramConfig
+
 class VirtualCharacter(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
@@ -251,6 +273,7 @@ class VirtualCharacter(BaseModel):
     primary_issue: str
     personality: str
     character_type: str
+    training_programs: Optional[TrainingPrograms] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     is_active: bool = True
 
@@ -461,6 +484,319 @@ async def get_characters():
     characters_docs = await mongo_db.characters.find({"is_active": True}).to_list(length=None)
     return [VirtualCharacter(**doc) for doc in characters_docs]
 
+@app.get("/characters/program/{program_type}", response_model=List[VirtualCharacter])
+async def get_characters_by_program(program_type: str):
+    """Get characters available for specific training program"""
+    if program_type not in ["basic", "crisis", "techniques"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid program type. Must be 'basic', 'crisis', or 'techniques'"
+        )
+    
+    # MongoDB 쿼리: training_programs.{program_type}.available이 true인 캐릭터만 조회
+    query = {
+        "is_active": True,
+        f"training_programs.{program_type}.available": True
+    }
+    
+    characters_docs = await mongo_db.characters.find(query).to_list(length=None)
+    return [VirtualCharacter(**doc) for doc in characters_docs]
+
+@app.get("/characters/program/{program_type}/stats")
+async def get_program_character_stats(program_type: str):
+    """Get statistics for characters in specific training program"""
+    if program_type not in ["basic", "crisis", "techniques"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid program type. Must be 'basic', 'crisis', or 'techniques'"
+        )
+    
+    # 프로그램별 캐릭터 통계
+    pipeline = [
+        {"$match": {
+            "is_active": True,
+            f"training_programs.{program_type}.available": True
+        }},
+        {"$group": {
+            "_id": "$issue",
+            "count": {"$sum": 1},
+            "avg_difficulty": {"$avg": "$difficulty"},
+            "characters": {"$push": {"name": "$name", "difficulty": "$difficulty"}}
+        }},
+        {"$sort": {"count": -1}}
+    ]
+    
+    stats = await mongo_db.characters.aggregate(pipeline).to_list(length=None)
+    
+    total_count = await mongo_db.characters.count_documents({
+        "is_active": True,
+        f"training_programs.{program_type}.available": True
+    })
+    
+    return {
+        "program_type": program_type,
+        "total_characters": total_count,
+        "by_issue": stats
+    }
+
+# Admin Dashboard endpoints
+@app.get("/admin/stats")
+async def get_admin_stats():
+    """Get comprehensive admin statistics"""
+    try:
+        # Character statistics
+        total_characters = await mongo_db.characters.count_documents({"is_active": True})
+        character_stats = await mongo_db.characters.aggregate([
+            {"$match": {"is_active": True}},
+            {"$group": {
+                "_id": "$issue",
+                "count": {"$sum": 1},
+                "avg_difficulty": {"$avg": "$difficulty"}
+            }}
+        ]).to_list(length=None)
+        
+        # Session statistics
+        total_sessions = await mongo_db.sessions.count_documents({})
+        active_sessions = await mongo_db.sessions.count_documents({"status": "active"})
+        completed_sessions = await mongo_db.sessions.count_documents({"status": "completed"})
+        
+        # User statistics
+        total_users = await mongo_db.users.count_documents({}) if "users" in await mongo_db.list_collection_names() else 0
+        
+        # Program distribution
+        program_distribution = {}
+        for program in ["basic", "crisis", "techniques"]:
+            count = await mongo_db.characters.count_documents({
+                "is_active": True,
+                f"training_programs.{program}.available": True
+            })
+            program_distribution[program] = count
+        
+        return {
+            "characters": {
+                "total": total_characters,
+                "by_issue": character_stats,
+                "by_program": program_distribution
+            },
+            "sessions": {
+                "total": total_sessions,
+                "active": active_sessions,
+                "completed": completed_sessions
+            },
+            "users": {
+                "total": total_users
+            },
+            "system": {
+                "database_status": "connected",
+                "ai_service_status": "available" if ai_service else "unavailable",
+                "uptime": time.time() - app_start_time
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching admin stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch admin statistics"
+        )
+
+@app.get("/admin/system-health")
+async def get_system_health():
+    """Get detailed system health information"""
+    try:
+        health_status = {
+            "api_server": {
+                "status": "healthy",
+                "uptime": time.time() - app_start_time,
+                "last_check": datetime.utcnow().isoformat()
+            },
+            "database": {
+                "status": "healthy" if mongo_db is not None else "disconnected",
+                "connection_pool": "active",
+                "last_check": datetime.utcnow().isoformat()
+            },
+            "ai_service": {
+                "status": "healthy" if ai_service and ai_service.providers else "unavailable",
+                "providers": list(ai_service.providers.keys()) if ai_service else [],
+                "default_provider": ai_service.default_provider if ai_service else None,
+                "last_check": datetime.utcnow().isoformat()
+            }
+        }
+        
+        # Test database connection
+        try:
+            await mongo_db.admin.command('ping')
+            health_status["database"]["status"] = "healthy"
+        except Exception:
+            health_status["database"]["status"] = "unhealthy"
+        
+        return health_status
+    except Exception as e:
+        logger.error(f"Error checking system health: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check system health"
+        )
+
+@app.get("/admin/api-usage")
+async def get_api_usage():
+    """Get API usage statistics and configuration"""
+    try:
+        api_stats = {
+            "ai_service": {
+                "status": "available" if ai_service else "unavailable",
+                "providers": [],
+                "default_provider": None,
+                "total_requests": 0,
+                "failed_requests": 0,
+                "usage_by_provider": {}
+            },
+            "database": {
+                "connection_string": os.getenv("MONGODB_URL", "mongodb://localhost:27017"),
+                "database_name": os.getenv("MONGODB_DB", "yatav_training"),
+                "status": "connected" if mongo_db is not None else "disconnected"
+            },
+            "external_apis": {
+                "openai": {
+                    "configured": bool(os.getenv("OPENAI_API_KEY")),
+                    "model": os.getenv("OPENAI_MODEL", "gpt-4"),
+                    "base_url": "https://api.openai.com/v1"
+                },
+                "anthropic": {
+                    "configured": bool(os.getenv("ANTHROPIC_API_KEY")),
+                    "model": os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
+                    "base_url": "https://api.anthropic.com"
+                }
+            }
+        }
+        
+        if ai_service:
+            api_stats["ai_service"]["providers"] = list(ai_service.providers.keys())
+            api_stats["ai_service"]["default_provider"] = ai_service.default_provider
+            
+            # Get usage statistics from AI service if available
+            if hasattr(ai_service, 'usage_stats'):
+                api_stats["ai_service"]["total_requests"] = getattr(ai_service, 'total_requests', 0)
+                api_stats["ai_service"]["failed_requests"] = getattr(ai_service, 'failed_requests', 0)
+                api_stats["ai_service"]["usage_by_provider"] = getattr(ai_service, 'usage_by_provider', {})
+        
+        return api_stats
+    except Exception as e:
+        logger.error(f"Error fetching API usage: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch API usage statistics"
+        )
+
+class APIConfigUpdate(BaseModel):
+    openai_api_key: Optional[str] = None
+    openai_model: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    anthropic_model: Optional[str] = None
+    mongodb_url: Optional[str] = None
+    base_api_url: Optional[str] = None
+
+@app.post("/admin/api-config")
+async def update_api_config(config: APIConfigUpdate):
+    """Update API configuration (Note: Requires restart for some changes)"""
+    try:
+        updated_configs = {}
+        restart_required = False
+        
+        # Note: In production, you'd want proper authentication and validation here
+        if config.openai_api_key:
+            os.environ["OPENAI_API_KEY"] = config.openai_api_key
+            updated_configs["openai_api_key"] = "Updated (masked)"
+            restart_required = True
+            
+        if config.openai_model:
+            os.environ["OPENAI_MODEL"] = config.openai_model
+            updated_configs["openai_model"] = config.openai_model
+            restart_required = True
+            
+        if config.anthropic_api_key:
+            os.environ["ANTHROPIC_API_KEY"] = config.anthropic_api_key
+            updated_configs["anthropic_api_key"] = "Updated (masked)"
+            restart_required = True
+            
+        if config.anthropic_model:
+            os.environ["ANTHROPIC_MODEL"] = config.anthropic_model
+            updated_configs["anthropic_model"] = config.anthropic_model
+            restart_required = True
+            
+        if config.mongodb_url:
+            updated_configs["mongodb_url"] = "Updated (requires restart)"
+            restart_required = True
+            
+        return {
+            "message": "API configuration updated successfully",
+            "updated_configs": updated_configs,
+            "restart_required": restart_required,
+            "warning": "Some changes require server restart to take effect"
+        }
+    except Exception as e:
+        logger.error(f"Error updating API config: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update API configuration"
+        )
+
+@app.get("/admin/api-endpoints")
+async def get_api_endpoints():
+    """Get list of all available API endpoints"""
+    try:
+        endpoints = []
+        for route in app.routes:
+            if hasattr(route, 'methods') and hasattr(route, 'path'):
+                for method in route.methods:
+                    if method != 'HEAD':  # Skip HEAD requests
+                        endpoints.append({
+                            "method": method,
+                            "path": route.path,
+                            "name": getattr(route, 'name', ''),
+                            "summary": getattr(route, 'summary', ''),
+                            "tags": getattr(route, 'tags', [])
+                        })
+        
+        # Group endpoints by category
+        grouped_endpoints = {
+            "authentication": [],
+            "characters": [],
+            "sessions": [],
+            "admin": [],
+            "websocket": [],
+            "health": [],
+            "other": []
+        }
+        
+        for endpoint in endpoints:
+            path = endpoint["path"]
+            if "/auth" in path:
+                grouped_endpoints["authentication"].append(endpoint)
+            elif "/characters" in path:
+                grouped_endpoints["characters"].append(endpoint)
+            elif "/sessions" in path:
+                grouped_endpoints["sessions"].append(endpoint)
+            elif "/admin" in path:
+                grouped_endpoints["admin"].append(endpoint)
+            elif "/ws" in path or "websocket" in path.lower():
+                grouped_endpoints["websocket"].append(endpoint)
+            elif "/health" in path:
+                grouped_endpoints["health"].append(endpoint)
+            else:
+                grouped_endpoints["other"].append(endpoint)
+        
+        return {
+            "total_endpoints": len(endpoints),
+            "grouped_endpoints": grouped_endpoints,
+            "base_url": os.getenv("BASE_API_URL", "http://127.0.0.1:8008")
+        }
+    except Exception as e:
+        logger.error(f"Error fetching API endpoints: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch API endpoints"
+        )
+
 @app.get("/characters/{character_id}", response_model=VirtualCharacter)
 async def get_character(character_id: str):
     """Get a specific virtual character"""
@@ -598,6 +934,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if data.get("type") == "user_message":
                 character_id = data.get("character_id")
                 user_message = data.get("content", "")
+                program_type = data.get("program_type")
                 
                 # Get character info
                 character_doc = await mongo_db.characters.find_one({"id": character_id})
@@ -617,7 +954,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         ai_content = await ai_service.generate_character_response(
                             character=character,
                             conversation_history=messages,
-                            user_message=user_message
+                            user_message=user_message,
+                            program_type=program_type
                         )
                     except Exception as e:
                         logger.error(f"AI generation error: {e}")

@@ -40,7 +40,8 @@ import {
 } from 'lucide-react';
 
 // Import hooks
-import { useAuth, useCharacters, useSessionManager, useHealthCheck, useWebSocket } from './hooks/useApi';
+import { useAuth, useCharacters, useCharactersByProgram, useSessionManager, useHealthCheck, useWebSocket, useAdminStats, useSystemHealth, useApiUsage, useApiEndpoints } from './hooks/useApi';
+import { apiService } from './services/api';
 
 // Context for app state
 interface AppContextType {
@@ -412,20 +413,37 @@ const CharacterSelect = () => {
 
   const program = trainingPrograms.find(p => p.id === selectedProgram);
 
-  // Use API characters if available, fallback to mock data
-  const availableCharacters = characters.loading 
-  ? [] 
-  : characters.error 
-    ? [] 
-    : characters.data || [];
+  // Get program-specific characters
+  const programCharacters = useCharactersByProgram(selectedProgram || 'basic');
+  
+  // Use program-specific characters if available, otherwise use all characters
+  const availableCharacters = programCharacters.loading 
+    ? (characters.loading ? [] : characters.data || [])
+    : programCharacters.error 
+      ? (characters.data || [])
+      : programCharacters.data || [];
 
+  // Filter characters based on program availability and user preferences
   const filteredCharacters = availableCharacters.filter(character => {
+    // Program-specific filtering
+    if (selectedProgram && character.training_programs) {
+      const programConfig = character.training_programs[selectedProgram as keyof typeof character.training_programs];
+      if (!programConfig?.available) {
+        return false;
+      }
+    }
+
+    // Search filtering
     const matchesSearch = character.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         character.issue.toLowerCase().includes(searchTerm.toLowerCase());
+                         character.issue.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (character.primary_issue && character.primary_issue.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    // Difficulty filtering
     const matchesDifficulty = selectedDifficulty === 'all' || 
                              (selectedDifficulty === 'easy' && character.difficulty <= 3) ||
                              (selectedDifficulty === 'medium' && character.difficulty >= 4 && character.difficulty <= 6) ||
                              (selectedDifficulty === 'hard' && character.difficulty >= 7);
+    
     return matchesSearch && matchesDifficulty;
   });
 
@@ -545,6 +563,46 @@ const CharacterSelect = () => {
                       <p className="text-sm font-medium mb-1">성격 특성</p>
                       <p className="text-sm text-muted-foreground leading-relaxed">{character.personality}</p>
                     </div>
+                    
+                    {/* Program-specific information */}
+                    {selectedProgram && character.training_programs && (() => {
+                      const programConfig = character.training_programs[selectedProgram as keyof typeof character.training_programs];
+                      if (!programConfig) return null;
+                      
+                      return (
+                        <div className="border-t pt-3">
+                          <p className="text-xs font-medium mb-2 text-primary">
+                            {selectedProgram === 'basic' && '🔰 기본 상담 훈련'}
+                            {selectedProgram === 'crisis' && '🚨 위기 개입 훈련'}
+                            {selectedProgram === 'techniques' && '🎯 특정 기법 훈련'}
+                          </p>
+                          
+                          {programConfig.session_type && (
+                            <p className="text-xs text-muted-foreground mb-1">
+                              <span className="font-medium">세션:</span> {programConfig.session_type}
+                            </p>
+                          )}
+                          
+                          {programConfig.urgency_level && (
+                            <p className="text-xs text-muted-foreground mb-1">
+                              <span className="font-medium">긴급도:</span> {programConfig.urgency_level}
+                            </p>
+                          )}
+                          
+                          {programConfig.complexity_level && (
+                            <p className="text-xs text-muted-foreground mb-1">
+                              <span className="font-medium">복잡도:</span> {programConfig.complexity_level}
+                            </p>
+                          )}
+                          
+                          {programConfig.recommended_techniques && programConfig.recommended_techniques.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              <span className="font-medium">기법:</span> {programConfig.recommended_techniques.slice(0, 2).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                   
                   <Button 
@@ -856,14 +914,96 @@ const TrainingSession = () => {
 
 const AdminDashboard = () => {
   const { setCurrentView } = useApp();
+  
+  // Fetch real-time admin data
+  const adminStats = useAdminStats();
+  const systemHealth = useSystemHealth();
+  const apiUsage = useApiUsage();
+  const apiEndpoints = useApiEndpoints();
 
-  const stats = {
-    totalUsers: 1247,
-    activeSessions: 23,
-    completedTrainings: 8934,
-    tokenUsage: 125000,
-    monthlyCost: 2340,
-    averageScore: 87
+  // State for API configuration
+  const [apiConfig, setApiConfig] = useState({
+    baseUrl: '',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4',
+    anthropicApiKey: '',
+    anthropicModel: 'claude-3-sonnet-20240229',
+    mongodbUrl: ''
+  });
+
+  const [configUpdateResult, setConfigUpdateResult] = useState<any>(null);
+
+  // Initialize base URL from current API service
+  useEffect(() => {
+    setApiConfig(prev => ({
+      ...prev,
+      baseUrl: apiService.getCurrentBaseUrl()
+    }));
+  }, []);
+
+  const handleUpdateApiConfig = async () => {
+    try {
+      const config = {
+        openai_api_key: apiConfig.openaiApiKey || undefined,
+        openai_model: apiConfig.openaiModel || undefined,
+        anthropic_api_key: apiConfig.anthropicApiKey || undefined,
+        anthropic_model: apiConfig.anthropicModel || undefined,
+        mongodb_url: apiConfig.mongodbUrl || undefined,
+        base_api_url: apiConfig.baseUrl || undefined
+      };
+
+      const result = await apiService.updateApiConfig(config);
+      setConfigUpdateResult(result);
+      
+      // Update base URL if changed
+      if (apiConfig.baseUrl && apiConfig.baseUrl !== apiService.getCurrentBaseUrl()) {
+        apiService.updateBaseUrl(apiConfig.baseUrl);
+      }
+    } catch (error) {
+      setConfigUpdateResult({
+        error: true,
+        message: 'API 설정 업데이트 중 오류가 발생했습니다.'
+      });
+    }
+  };
+
+  const handleTestConnection = async () => {
+    try {
+      const response = await fetch(`${apiConfig.baseUrl}/health`);
+      if (response.ok) {
+        setConfigUpdateResult({
+          message: '연결 테스트 성공!',
+          test_result: true
+        });
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      setConfigUpdateResult({
+        error: true,
+        message: `연결 테스트 실패: ${error}`,
+        test_result: false
+      });
+    }
+  };
+
+  // Fallback to mock data if API is unavailable
+  const stats = adminStats.loading ? {
+    totalUsers: '로딩 중...',
+    activeSessions: '로딩 중...',
+    completedTrainings: '로딩 중...',
+    totalCharacters: '로딩 중...'
+  } : adminStats.error ? {
+    totalUsers: '오류',
+    activeSessions: '오류',
+    completedTrainings: '오류',
+    totalCharacters: '오류'
+  } : {
+    totalUsers: adminStats.data?.users?.total || 0,
+    activeSessions: adminStats.data?.sessions?.active || 0,
+    completedTrainings: adminStats.data?.sessions?.completed || 0,
+    totalCharacters: adminStats.data?.characters?.total || 0,
+    programDistribution: adminStats.data?.characters?.by_program || {}
   };
 
   return (
@@ -881,12 +1021,12 @@ const AdminDashboard = () => {
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
           {[
-            { title: '총 사용자', value: stats.totalUsers.toLocaleString(), change: '+12%', icon: Users },
+            { title: '총 사용자', value: typeof stats.totalUsers === 'number' ? stats.totalUsers.toLocaleString() : stats.totalUsers, change: '등록된 사용자', icon: Users },
             { title: '활성 세션', value: stats.activeSessions, change: '현재 진행 중', icon: MessageSquare },
-            { title: '완료된 훈련', value: stats.completedTrainings.toLocaleString(), change: '+8.2%', icon: BookOpen },
-            { title: '토큰 사용량', value: stats.tokenUsage.toLocaleString(), change: '이번 달 총합', icon: Zap },
-            { title: '월간 비용', value: `$${stats.monthlyCost.toLocaleString()}`, change: 'AI API 포함', icon: BarChart3 },
-            { title: '평균 점수', value: `${stats.averageScore}%`, change: '전체 훈련 평균', icon: Star }
+            { title: '완료된 훈련', value: typeof stats.completedTrainings === 'number' ? stats.completedTrainings.toLocaleString() : stats.completedTrainings, change: '총 완료 세션', icon: BookOpen },
+            { title: '총 캐릭터', value: typeof stats.totalCharacters === 'number' ? stats.totalCharacters.toLocaleString() : stats.totalCharacters, change: '활성 캐릭터', icon: Target },
+            { title: '기본 훈련', value: stats.programDistribution?.basic || 0, change: '기본 상담 캐릭터', icon: Heart },
+            { title: '위기 개입', value: stats.programDistribution?.crisis || 0, change: '위기 상황 캐릭터', icon: AlertTriangle }
           ].map((stat, index) => (
             <div key={index} className="mono-card p-6 group">
               <div className="flex items-center justify-between mb-4">
@@ -909,6 +1049,7 @@ const AdminDashboard = () => {
               <TabsTrigger value="users" className="rounded-xl px-4 py-2">사용자 관리</TabsTrigger>
               <TabsTrigger value="sessions" className="rounded-xl px-4 py-2">세션 모니터링</TabsTrigger>
               <TabsTrigger value="characters" className="rounded-xl px-4 py-2">캐릭터 관리</TabsTrigger>
+              <TabsTrigger value="api" className="rounded-xl px-4 py-2">API 관리</TabsTrigger>
               <TabsTrigger value="settings" className="rounded-xl px-4 py-2">시스템 설정</TabsTrigger>
             </TabsList>
 
@@ -918,20 +1059,43 @@ const AdminDashboard = () => {
                   <Shield className="h-5 w-5" />
                   시스템 상태
                 </h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { name: 'API 서버', status: 'normal' },
-                    { name: '데이터베이스', status: 'normal' },
-                    { name: 'AI 서비스', status: 'normal' },
-                    { name: '캐시 서버', status: 'warning' }
-                  ].map((service, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
-                      <span className="text-sm font-medium">{service.name}</span>
-                      <Badge className={`${service.status === 'normal' ? 'bg-foreground' : 'bg-muted-foreground'} text-background border-none rounded-full px-2 py-1`}>
-                        {service.status === 'normal' ? '정상' : '주의'}
-                      </Badge>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {systemHealth.loading ? (
+                    <div className="col-span-full text-center text-muted-foreground">
+                      시스템 상태를 확인하는 중...
                     </div>
-                  ))}
+                  ) : systemHealth.error ? (
+                    <div className="col-span-full text-center text-red-500">
+                      시스템 상태를 가져올 수 없습니다
+                    </div>
+                  ) : (
+                    [
+                      { name: 'API 서버', status: systemHealth.data?.api_server?.status || 'unknown' },
+                      { name: '데이터베이스', status: systemHealth.data?.database?.status || 'unknown' },
+                      { name: 'AI 서비스', status: systemHealth.data?.ai_service?.status || 'unknown' }
+                    ].map((service, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 rounded-xl bg-muted/50">
+                        <span className="text-sm font-medium">{service.name}</span>
+                        <Badge className={`${
+                          service.status === 'healthy' ? 'bg-green-600 text-white' :
+                          service.status === 'available' ? 'bg-green-600 text-white' :
+                          service.status === 'warning' ? 'bg-yellow-600 text-white' :
+                          service.status === 'unhealthy' ? 'bg-red-600 text-white' :
+                          service.status === 'unavailable' ? 'bg-red-600 text-white' :
+                          'bg-gray-500 text-white'
+                        } border-none rounded-full px-2 py-1`}>
+                          {
+                            service.status === 'healthy' ? '정상' :
+                            service.status === 'available' ? '정상' :
+                            service.status === 'warning' ? '주의' :
+                            service.status === 'unhealthy' ? '오류' :
+                            service.status === 'unavailable' ? '사용불가' :
+                            '알 수 없음'
+                          }
+                        </Badge>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </TabsContent>
@@ -964,11 +1128,308 @@ const AdminDashboard = () => {
               <div className="glass rounded-2xl p-6">
                 <h3 className="text-lg font-semibold mb-2">가상 캐릭터 관리</h3>
                 <p className="text-muted-foreground mb-6">
-                  500개 이상의 가상 내담자 캐릭터를 관리합니다.
+                  {adminStats.loading ? '로딩 중...' : 
+                   adminStats.error ? '데이터를 가져올 수 없습니다' :
+                   `${stats.totalCharacters}개의 가상 내담자 캐릭터를 관리합니다.`}
                 </p>
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">캐릭터 관리 기능이 여기에 표시됩니다.</p>
+                
+                {adminStats.data?.characters?.by_program && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Heart className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-800">기본 상담 훈련</span>
+                      </div>
+                      <p className="text-2xl font-bold text-blue-900">
+                        {adminStats.data.characters.by_program.basic || 0}명
+                      </p>
+                    </div>
+                    
+                    <div className="p-4 rounded-xl bg-red-50 border border-red-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium text-red-800">위기 개입 훈련</span>
+                      </div>
+                      <p className="text-2xl font-bold text-red-900">
+                        {adminStats.data.characters.by_program.crisis || 0}명
+                      </p>
+                    </div>
+                    
+                    <div className="p-4 rounded-xl bg-purple-50 border border-purple-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Target className="h-4 w-4 text-purple-600" />
+                        <span className="text-sm font-medium text-purple-800">특정 기법 훈련</span>
+                      </div>
+                      <p className="text-2xl font-bold text-purple-900">
+                        {adminStats.data.characters.by_program.techniques || 0}명
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {adminStats.data?.characters?.by_issue && adminStats.data.characters.by_issue.length > 0 && (
+                  <div>
+                    <h4 className="text-md font-medium mb-3">문제 유형별 분포</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {adminStats.data.characters.by_issue.slice(0, 8).map((issue: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                          <span className="text-sm font-medium">{issue._id}</span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="rounded-full">
+                              {issue.count}명
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              난이도 {issue.avg_difficulty?.toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="api" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* API Configuration */}
+                <div className="glass rounded-2xl p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    API 설정
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Base API URL</label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={apiConfig.baseUrl}
+                          onChange={(e) => setApiConfig(prev => ({ ...prev, baseUrl: e.target.value }))}
+                          placeholder="http://127.0.0.1:8008"
+                          className="flex-1"
+                        />
+                        <Button onClick={handleTestConnection} variant="outline" size="sm">
+                          테스트
+                        </Button>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">OpenAI API Key</label>
+                      <Input
+                        type="password"
+                        value={apiConfig.openaiApiKey}
+                        onChange={(e) => setApiConfig(prev => ({ ...prev, openaiApiKey: e.target.value }))}
+                        placeholder="sk-..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">OpenAI Model</label>
+                      <Select value={apiConfig.openaiModel} onValueChange={(value) => 
+                        setApiConfig(prev => ({ ...prev, openaiModel: value }))
+                      }>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gpt-4">GPT-4</SelectItem>
+                          <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
+                          <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Anthropic API Key</label>
+                      <Input
+                        type="password"
+                        value={apiConfig.anthropicApiKey}
+                        onChange={(e) => setApiConfig(prev => ({ ...prev, anthropicApiKey: e.target.value }))}
+                        placeholder="sk-ant-..."
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Anthropic Model</label>
+                      <Select value={apiConfig.anthropicModel} onValueChange={(value) => 
+                        setApiConfig(prev => ({ ...prev, anthropicModel: value }))
+                      }>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="claude-3-sonnet-20240229">Claude 3 Sonnet</SelectItem>
+                          <SelectItem value="claude-3-opus-20240229">Claude 3 Opus</SelectItem>
+                          <SelectItem value="claude-3-haiku-20240307">Claude 3 Haiku</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">MongoDB URL</label>
+                      <Input
+                        value={apiConfig.mongodbUrl}
+                        onChange={(e) => setApiConfig(prev => ({ ...prev, mongodbUrl: e.target.value }))}
+                        placeholder="mongodb://localhost:27017"
+                      />
+                    </div>
+
+                    <Button onClick={handleUpdateApiConfig} className="w-full">
+                      설정 업데이트
+                    </Button>
+
+                    {configUpdateResult && (
+                      <div className={`p-3 rounded-lg ${
+                        configUpdateResult.error ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+                      }`}>
+                        <p className={`text-sm font-medium ${
+                          configUpdateResult.error ? 'text-red-800' : 'text-green-800'
+                        }`}>
+                          {configUpdateResult.message}
+                        </p>
+                        {configUpdateResult.restart_required && (
+                          <p className="text-xs text-orange-600 mt-1">
+                            ⚠️ 일부 변경사항은 서버 재시작이 필요합니다.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* API Usage Statistics */}
+                <div className="glass rounded-2xl p-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    API 사용 현황
+                  </h3>
+
+                  {apiUsage.loading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      API 사용 현황을 불러오는 중...
+                    </div>
+                  ) : apiUsage.error ? (
+                    <div className="text-center py-8 text-red-500">
+                      API 사용 현황을 가져올 수 없습니다
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* AI Service Status */}
+                      <div className="p-4 rounded-lg bg-muted/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium">AI 서비스</span>
+                          <Badge className={`${
+                            apiUsage.data?.ai_service?.status === 'available' ? 'bg-green-600' : 'bg-red-600'
+                          } text-white`}>
+                            {apiUsage.data?.ai_service?.status === 'available' ? '사용 가능' : '사용 불가'}
+                          </Badge>
+                        </div>
+                        {apiUsage.data?.ai_service?.providers?.length > 0 && (
+                          <div className="text-sm text-muted-foreground">
+                            <p>사용 가능한 프로바이더: {apiUsage.data.ai_service.providers.join(', ')}</p>
+                            <p>기본 프로바이더: {apiUsage.data.ai_service.default_provider}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Database Status */}
+                      <div className="p-4 rounded-lg bg-muted/50">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium">데이터베이스</span>
+                          <Badge className={`${
+                            apiUsage.data?.database?.status === 'connected' ? 'bg-green-600' : 'bg-red-600'
+                          } text-white`}>
+                            {apiUsage.data?.database?.status === 'connected' ? '연결됨' : '연결 안됨'}
+                          </Badge>
+                        </div>
+                        {apiUsage.data?.database && (
+                          <div className="text-sm text-muted-foreground">
+                            <p>DB: {apiUsage.data.database.database_name}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* External APIs */}
+                      <div className="space-y-2">
+                        <h4 className="font-medium">외부 API 설정</h4>
+                        {apiUsage.data?.external_apis && Object.entries(apiUsage.data.external_apis).map(([key, api]: [string, any]) => (
+                          <div key={key} className="p-3 rounded-lg bg-muted/30">
+                            <div className="flex items-center justify-between">
+                              <span className="capitalize font-medium">{key}</span>
+                              <Badge variant={api.configured ? 'default' : 'secondary'}>
+                                {api.configured ? '설정됨' : '미설정'}
+                              </Badge>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              <p>모델: {api.model}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* API Endpoints */}
+              <div className="glass rounded-2xl p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Globe className="h-5 w-5" />
+                  사용 가능한 API 엔드포인트
+                </h3>
+
+                {apiEndpoints.loading ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    API 엔드포인트를 불러오는 중...
+                  </div>
+                ) : apiEndpoints.error ? (
+                  <div className="text-center py-8 text-red-500">
+                    API 엔드포인트를 가져올 수 없습니다
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm text-muted-foreground">
+                        총 {apiEndpoints.data?.total_endpoints || 0}개의 엔드포인트
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Base URL: {apiEndpoints.data?.base_url}
+                      </p>
+                    </div>
+
+                    {apiEndpoints.data?.grouped_endpoints && Object.entries(apiEndpoints.data.grouped_endpoints).map(([category, endpoints]: [string, any[]]) => (
+                      endpoints.length > 0 && (
+                        <div key={category} className="border rounded-lg overflow-hidden">
+                          <div className="bg-muted/50 px-4 py-2 border-b">
+                            <h4 className="font-medium capitalize">{category} ({endpoints.length})</h4>
+                          </div>
+                          <div className="max-h-48 overflow-y-auto">
+                            {endpoints.map((endpoint, index) => (
+                              <div key={index} className="px-4 py-2 border-b last:border-b-0 hover:bg-muted/25">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={
+                                    endpoint.method === 'GET' ? 'secondary' :
+                                    endpoint.method === 'POST' ? 'default' :
+                                    endpoint.method === 'PUT' ? 'outline' :
+                                    endpoint.method === 'DELETE' ? 'destructive' :
+                                    'secondary'
+                                  } className="text-xs">
+                                    {endpoint.method}
+                                  </Badge>
+                                  <code className="text-sm font-mono">{endpoint.path}</code>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                )}
               </div>
             </TabsContent>
 

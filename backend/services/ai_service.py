@@ -181,7 +181,8 @@ class AIService:
         character: Dict[str, Any],
         conversation_history: List[Dict[str, Any]],
         user_message: str,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
+        program_type: Optional[str] = None
     ) -> str:
         """Generate AI response as a virtual character"""
         
@@ -191,11 +192,11 @@ class AIService:
         
         provider_instance = self.providers[provider_name]
         
-        # Build conversation context
+        # Build conversation context with program-specific system prompt
         messages = [
             {
                 "role": "system",
-                "content": self._build_character_system_prompt(character)
+                "content": self._build_character_system_prompt(character, program_type)
             }
         ]
         
@@ -377,8 +378,8 @@ class AIService:
         
         return emotion_data
     
-    def _build_character_system_prompt(self, character: Dict[str, Any]) -> str:
-        """Build system prompt for character roleplay"""
+    def _build_character_system_prompt(self, character: Dict[str, Any], program_type: Optional[str] = None) -> str:
+        """Build system prompt for character roleplay with program-specific styling"""
         
         prompt = f"""CRITICAL INSTRUCTION: You are a CLIENT/PATIENT seeking psychological help. You are NOT a therapist or counselor.
 
@@ -415,10 +416,68 @@ INCORRECT examples (절대 하지 마세요):
 
 REMEMBER: You are the one RECEIVING help, not GIVING help. Express YOUR feelings and problems only."""
 
+        # Add program-specific instructions
+        program_instructions = self._get_program_specific_instructions(program_type, character)
+        if program_instructions:
+            prompt += f"\n\n{program_instructions}"
+
         if character.get('system_prompt'):
             prompt += f"\n\nADDITIONAL CHARACTER NOTES:\n{character.get('system_prompt')}"
         
         return prompt
+    
+    def _get_program_specific_instructions(self, program_type: Optional[str], character: Dict[str, Any]) -> str:
+        """Get program-specific instructions for character behavior"""
+        
+        if not program_type:
+            return ""
+        
+        training_programs = character.get('training_programs', {})
+        program_config = training_programs.get(program_type, {})
+        
+        if program_type == "basic":
+            return """
+🔰 기본 상담 훈련 모드:
+- 당신은 처음 상담을 받는 내담자입니다
+- 친근하고 협조적인 태도를 보이세요
+- 상담자의 기본 기술(경청, 공감)을 연습할 수 있도록 적절한 반응을 하세요
+- 복잡한 심리적 개념보다는 일상적이고 이해하기 쉬운 언어를 사용하세요
+- 감정을 솔직하게 표현하되, 과도하게 극단적이지 않게 하세요
+
+응답 스타일: 따뜻하고 개방적, 짧고 명확한 문장 사용"""
+
+        elif program_type == "crisis":
+            urgency_level = program_config.get('urgency_level', '중간')
+            safety_concerns = program_config.get('safety_concerns', [])
+            
+            return f"""
+🚨 위기 개입 훈련 모드:
+- 당신은 현재 심각한 위기 상황에 있는 내담자입니다
+- 긴급도: {urgency_level}
+- 안전 우려사항: {', '.join(safety_concerns)}
+- 즉각적인 도움이 필요한 상태를 표현하세요
+- 상담자의 위기 개입 기술을 연습할 수 있도록 현실적인 위기 반응을 보이세요
+- 감정이 격앙되어 있을 수 있지만, 상담자의 개입에는 반응하세요
+
+응답 스타일: 긴급하고 직접적, 감정적 강도가 높음"""
+
+        elif program_type == "techniques":
+            techniques = program_config.get('recommended_techniques', [])
+            complexity_level = program_config.get('complexity_level', '중급')
+            session_type = program_config.get('session_type', '개인치료')
+            
+            return f"""
+🎯 특정 기법 훈련 모드:
+- 당신은 {session_type}를 받고 있는 내담자입니다
+- 권장 치료 기법: {', '.join(techniques)}
+- 복잡도: {complexity_level}
+- 상담자가 전문적인 치료 기법을 적용할 수 있도록 적절한 반응을 보이세요
+- 치료 과정에 대한 이해도를 보여주되, 전문가가 되어서는 안 됩니다
+- 깊이 있는 자기 탐색과 통찰을 보여줄 수 있습니다
+
+응답 스타일: 성찰적이고 협력적, 구체적이고 상세한 표현"""
+        
+        return ""
     
     def _filter_questions_from_response(self, response: str) -> str:
         """Filter out questions from AI response"""

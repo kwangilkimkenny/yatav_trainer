@@ -137,6 +137,49 @@ export function useCharacters(): ApiListState<VirtualCharacter> {
   ) as ApiListState<VirtualCharacter>;
 }
 
+export function useCharactersByProgram(programType: string): ApiListState<VirtualCharacter> {
+  return useApiCall(
+    () => apiService.getCharactersByProgram(programType),
+    [programType]
+  ) as ApiListState<VirtualCharacter>;
+}
+
+export function useProgramCharacterStats(programType: string): ApiState<any> {
+  return useApiCall(
+    () => apiService.getProgramCharacterStats(programType),
+    [programType]
+  );
+}
+
+// Admin hooks
+export function useAdminStats(): ApiState<any> {
+  return useApiCall(
+    () => apiService.getAdminStats(),
+    []
+  );
+}
+
+export function useSystemHealth(): ApiState<any> {
+  return useApiCall(
+    () => apiService.getSystemHealth(),
+    []
+  );
+}
+
+export function useApiUsage(): ApiState<any> {
+  return useApiCall(
+    () => apiService.getApiUsage(),
+    []
+  );
+}
+
+export function useApiEndpoints(): ApiState<any> {
+  return useApiCall(
+    () => apiService.getApiEndpoints(),
+    []
+  );
+}
+
 export function useCharacter(characterId: string | null): ApiState<VirtualCharacter> {
   return useApiCall(
     () => characterId ? apiService.getCharacter(characterId) : Promise.resolve(null),

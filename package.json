@@ -1,0 +1,209 @@
+{
+  "name": "yatav-training-system",
+  "version": "2.0.0",
+  "description": "YATAV Professional Training System - AI-powered counseling training platform",
+  "main": "electron/main.js",
+  "author": "YATAV Team",
+  "license": "MIT",
+  "private": true,
+  "homepage": "./",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yatav/training-system.git"
+  },
+  "scripts": {
+    "start": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\" \"wait-on http://localhost:3001 && npm run electron:dev\"",
+    "backend:dev": "cd backend && python -m uvicorn main:app --reload --host 127.0.0.1 --port 8008",
+    "frontend:dev": "cd frontend && npm run dev",
+    "electron:dev": "NODE_ENV=development electron .",
+    "frontend:build": "cd frontend && npm run build",
+    "backend:build": "cd backend && pyinstaller --onefile --name yatav-backend main.py",
+    "build": "npm run frontend:build && npm run backend:build",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "postinstall": "electron-builder install-app-deps",
+    "test": "jest",
+    "test:e2e": "playwright test",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "clean": "rimraf dist out frontend/dist backend/dist",
+    "rebuild": "npm run clean && npm run build",
+    "release": "npm run build && electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.yatav.training",
+    "productName": "YATAV Training System",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "backend/dist/**/*",
+      "backend-node/dist/**/*"
+    ],
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "backend/dist/**/*",
+      "node_modules/**/*",
+      "test.html",
+      "!**/*.map",
+      "!**/*.md",
+      "!**/test/**",
+      "!**/tests/**",
+      "!**/__pycache__/**",
+      "!**/.pytest_cache/**"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-node/dist",
+        "to": "backend-node/dist",
+        "filter": ["**/*.js", "**/*.js.map"]
+      },
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "assets/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "certificateFile": null,
+      "certificatePassword": null
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Education",
+      "desktop": {
+        "Name": "YATAV Training System",
+        "Comment": "AI-powered counseling training platform",
+        "Categories": "Education;Training;"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "YATAV Training"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "backgroundColor": "#667eea"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "yatav",
+      "repo": "training-system",
+      "releaseType": "release"
+    }
+  },
+  "dependencies": {
+    "canvas": "^3.2.0",
+    "electron-context-menu": "^3.6.1",
+    "electron-log": "^5.0.1",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7",
+    "png2ico": "^0.4.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.1",
+    "@types/node": "^20.10.5",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "dotenv": "^16.3.1",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3",
+    "electron-icon-maker": "^0.0.5",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "rimraf": "^5.0.5",
+    "svg2png-wasm": "^1.4.1",
+    "wait-on": "^7.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

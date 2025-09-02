@@ -1,0 +1,1 @@
+mongoimport --uri="mongodb://localhost:27017" --db="yatav_training" --collection="characters" --file="/Users/kone/Documents/workdesk/project_03/yatav_v2/yatav_trainer/data/characters.json"
